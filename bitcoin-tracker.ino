@@ -18,11 +18,16 @@ byte arrow_down[8] = {
 B00000,B00100,B00100,B00100,
 B10001,B01010,B00100,B00000,};
 
-String current_price_url = "http://api.coindesk.com/v1/bpi/currentprice.json";
+String current_price_url = "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT";
+String current_price_url_fingerprint = "5B 5F CA EA D0 43 FC 52 2F D9 E2 EC A0 6C A8 57 70 DB 58 F7";
+
 String closing_price_url = "http://api.coindesk.com/v1/bpi/historical/close.json";
+String closing_price_url_fingerprint = "68 13 FB 58 75 DC CA CA 7A 96 50 46 59 A5 B1 78 AF 95 4B 1C";
 
 float previous_price;
 float closing_price;
+
+StaticJsonDocument<2048> json_doc;
 
 void setup() 
 {
@@ -64,27 +69,21 @@ void loop()
 {
   if (WiFi.status() == WL_CONNECTED) 
   {
-    // Get new price
     float new_price = get_current_price();
     if (new_price != previous_price) {
-      // Print to screen when price changes
       print_to_screen(new_price, previous_price, closing_price);
-    
-      // Store new previous price
+
       previous_price = new_price;
     }   
   }
-  delay(5000);
+  // delay(1000);
 }
 
 float get_current_price() {
-  // Returns the current BTC price
-  
-  String jsonBuffer = sendGET(current_price_url.c_str());
+  String jsonBuffer = sendGET(current_price_url, current_price_url_fingerprint);
   Serial.println(jsonBuffer);
 
-  StaticJsonDocument<1024> doc;
-  DeserializationError error = deserializeJson(doc, jsonBuffer);
+  DeserializationError error = deserializeJson(json_doc, jsonBuffer);
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
@@ -93,21 +92,16 @@ float get_current_price() {
     return -1;
   }
 
-  JsonObject bpi = doc["bpi"];
-  JsonObject bpi_USD = bpi["USD"];
-  float bpi_USD_rate_float = bpi_USD["rate_float"];
+  String current_price = json_doc["lastPrice"];
 
-  return bpi_USD_rate_float;
+  return current_price.toFloat();
 }
 
 float get_closing_price() {
-  // Returns the BTC closing price from yesterday
-  
-  String jsonBuffer = sendGET(closing_price_url.c_str());
+  String jsonBuffer = sendGET(closing_price_url, closing_price_url_fingerprint);
   Serial.println(jsonBuffer);
 
-  DynamicJsonDocument doc(1536);
-  DeserializationError error = deserializeJson(doc, jsonBuffer);
+  DeserializationError error = deserializeJson(json_doc, jsonBuffer);
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
@@ -116,7 +110,7 @@ float get_closing_price() {
     return -1;
   }
 
-  JsonObject bpi = doc["bpi"];
+  JsonObject bpi = json_doc["bpi"];
   
   // Get last element
   float closing_price = 0;
@@ -128,15 +122,18 @@ float get_closing_price() {
 }
 
 
-String sendGET(const char* url) {
-  // Performs a GET operation to the given URL
-  // and returns its response body
+String sendGET(String _url, String _fingerprint) {
+  const char* url = _url.c_str();
+  const char* fingerprint = _fingerprint.c_str();
   
   HTTPClient http;
   
-  // Your IP address with path or Domain name with URL path 
-  http.begin(url);
-  
+  if (_url.startsWith("https")) {
+    http.begin(url, fingerprint);
+  } else {
+    http.begin(url);
+  }
+    
   // Send HTTP POST request
   digitalWrite(BUILTIN_LED, LOW);
   int httpResponseCode = http.GET();
@@ -160,9 +157,6 @@ String sendGET(const char* url) {
 }
 
 void print_to_screen(float current_price, float previous_price, float closing_price) {
-  // Prints to the LCD screen the current price,
-  // and the difference to the closing price
-  
   lcd.clear();
   
   // First row

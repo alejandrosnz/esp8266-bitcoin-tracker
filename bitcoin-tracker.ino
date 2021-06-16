@@ -1,16 +1,25 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
-#define ARDUINOJSON_USE_DOUBLE 0
+#define ARDUINOJSON_USE_DOUBLE 1
 #include <ArduinoJson.h>
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
+#include <avr/pgmspace.h>
+
+#ifdef DEBUG
+  #define DEBUG_PRINT(x)  Serial.println (x)
+#else
+  #define DEBUG_PRINT(x)
+#endif
 
 const char* ssid = "your_ssid_here";
 const char* password = "wifi_pass_here";
 
 // Create LCD object, with I2C address 0x3F y 16 columns x 2 rows
 LiquidCrystal_I2C lcd(0x3F,16,2);
+
+// Create custom symbols for LCD
 byte arrow_up[8] = {
 B00000,B00100,B01010,B10101,
 B00100,B00100,B00100,B00000,};
@@ -18,16 +27,27 @@ byte arrow_down[8] = {
 B00000,B00100,B00100,B00100,
 B10001,B01010,B00100,B00000,};
 
-String current_price_url = "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT";
+String current_price_url = "https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT";
 String current_price_url_fingerprint = "5B 5F CA EA D0 43 FC 52 2F D9 E2 EC A0 6C A8 57 70 DB 58 F7";
 
-String closing_price_url = "http://api.coindesk.com/v1/bpi/historical/close.json";
-String closing_price_url_fingerprint = "68 13 FB 58 75 DC CA CA 7A 96 50 46 59 A5 B1 78 AF 95 4B 1C";
+String closing_price_url = "https://min-api.cryptocompare.com/data/pricemultifull?fsyms={symbol}&tsyms=USD&api_key=e93bd5717285b407ac55d1e2bc0cbbddca5b4080014a1e8a29e07ca44b6dc5de";
+String closing_price_url_fingerprint = "3C DB DB 59 CD 33 75 45 7D 99 D1 39 5A 56 CC BE 0F B1 F6 61";
 
-float previous_price;
-float closing_price;
+// Add symbols for the tracker to follow: {"BTC", "ETH", "DOGE"}
+String list_of_symbols[] = {"BTC", "ETH"};
+#define SECONDS_TO_DISPLAY_EACH_SYMBOL 5
 
-StaticJsonDocument<2048> json_doc;
+int size_of_list_of_symbols = sizeof(list_of_symbols)/sizeof(String);
+
+#define JSON_SIZE_PER_SYMBOL 75
+#define CLOSING_PRICE "clse"
+#define CURRENT_PRICE "curr"
+
+DynamicJsonDocument list_of_prices(size_of_list_of_symbols * JSON_SIZE_PER_SYMBOL);
+DynamicJsonDocument json_doc(18000);
+
+int symbol_index;
+long start_time;
 
 void setup() 
 {
@@ -51,72 +71,97 @@ void setup()
 
   while (WiFi.status() != WL_CONNECTED){
     delay(1000);
-    Serial.println("Connecting...");
+    Serial.println(F("Connecting..."));
     lcd.clear();
-    lcd.print("Connecting...");
+    lcd.print(F("Connecting..."));
   }
-  Serial.println("Connected!");
+  Serial.println(F("Connected!"));
   lcd.clear();
-  lcd.print("Connected!");
+  lcd.print(F("Connected!"));
 
   // Get initial price values
-  closing_price = get_closing_price();
-  previous_price = get_current_price();
-  print_to_screen(previous_price, previous_price, closing_price);
+  for (byte i = 0; i < size_of_list_of_symbols; i++) {
+    String symbol = list_of_symbols[i];
+    list_of_prices[symbol][CLOSING_PRICE] = get_closing_price(symbol);
+    list_of_prices[symbol][CURRENT_PRICE] = get_current_price(symbol);
+  }
+  // Print first price values
+  print_to_screen(list_of_prices[list_of_symbols[0]][CURRENT_PRICE], \
+                  list_of_prices[list_of_symbols[0]][CURRENT_PRICE], \
+                  list_of_prices[list_of_symbols[0]][CLOSING_PRICE], \
+                  list_of_symbols[0]);
+  
+  symbol_index = 0;
+  start_time = millis();
 }
 
 void loop() 
 {
-  if (WiFi.status() == WL_CONNECTED) 
-  {
-    float new_price = get_current_price();
-    if (new_price != previous_price) {
-      print_to_screen(new_price, previous_price, closing_price);
+  String symbol;
 
-      previous_price = new_price;
-    }   
+  if (WiFi.status() == WL_CONNECTED) {  
+    long current_millis = millis();
+
+    if(current_millis > start_time + (SECONDS_TO_DISPLAY_EACH_SYMBOL * 1000)){
+      start_time = current_millis;
+      symbol_index += 1;
+      if (symbol_index >= size_of_list_of_symbols) {
+        symbol_index = 0;
+      }
+    }
+    symbol = list_of_symbols[symbol_index];
+    
+    double new_price = get_current_price(symbol);
+    if (new_price != list_of_prices[symbol][CURRENT_PRICE]) {
+      print_to_screen(new_price, \
+                      list_of_prices[symbol][CURRENT_PRICE], \
+                      list_of_prices[symbol][CLOSING_PRICE], \
+                      symbol);
+
+      list_of_prices[symbol][CURRENT_PRICE] = new_price;
+    }
   }
   // delay(1000);
 }
 
-float get_current_price() {
-  String jsonBuffer = sendGET(current_price_url, current_price_url_fingerprint);
-  Serial.println(jsonBuffer);
+double get_current_price(String symbol) {
+  String _current_price_url = current_price_url;
+  _current_price_url.replace(F("{symbol}"), symbol);
+  String jsonBuffer = sendGET(_current_price_url, \
+                              current_price_url_fingerprint);
+  DEBUG_PRINT(jsonBuffer);
 
   DeserializationError error = deserializeJson(json_doc, jsonBuffer);
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
     lcd.clear();
-    lcd.print("Failed to parse JSON");
+    lcd.print(F("Failed to parse JSON"));
     return -1;
   }
 
-  String current_price = json_doc["lastPrice"];
+  String current_price = json_doc[F("lastPrice")];
 
-  return current_price.toFloat();
+  return current_price.toDouble();
 }
 
-float get_closing_price() {
-  String jsonBuffer = sendGET(closing_price_url, closing_price_url_fingerprint);
-  Serial.println(jsonBuffer);
+double get_closing_price(String symbol) {
+  String _closing_price_url = closing_price_url;
+  _closing_price_url.replace(F("{symbol}"), symbol);
+  String jsonBuffer = sendGET(_closing_price_url, \
+                              closing_price_url_fingerprint);
+  DEBUG_PRINT(jsonBuffer);
 
   DeserializationError error = deserializeJson(json_doc, jsonBuffer);
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
     lcd.clear();
-    lcd.print("Failed to parse JSON");
+    lcd.print(F("Failed to parse JSON"));
     return -1;
   }
 
-  JsonObject bpi = json_doc["bpi"];
-  
-  // Get last element
-  float closing_price = 0;
-  for (JsonPair kv : bpi) {
-    closing_price = kv.value().as<float>();
-  }
+  double closing_price = json_doc[F("RAW")][symbol][F("USD")][F("OPENDAY")];
 
   return closing_price;
 }
@@ -128,7 +173,7 @@ String sendGET(String _url, String _fingerprint) {
   
   HTTPClient http;
   
-  if (_url.startsWith("https")) {
+  if (_url.startsWith(F("https"))) {
     http.begin(url, fingerprint);
   } else {
     http.begin(url);
@@ -142,12 +187,12 @@ String sendGET(String _url, String _fingerprint) {
   String payload = "{}"; 
   
   if (httpResponseCode > 0) {
-    Serial.print("HTTP Response code: ");
+    Serial.print(F("HTTP Response code: "));
     Serial.println(httpResponseCode);
     payload = http.getString();
   }
   else {
-    Serial.print("HTTP error! ");
+    Serial.print(F("HTTP error! "));
     Serial.println(httpResponseCode);
   }
   // Free resources
@@ -156,7 +201,7 @@ String sendGET(String _url, String _fingerprint) {
   return payload;
 }
 
-void print_to_screen(float current_price, float previous_price, float closing_price) {
+void print_to_screen(double current_price, double previous_price, double closing_price, String symbol) {
   lcd.clear();
   
   // First row
@@ -167,34 +212,36 @@ void print_to_screen(float current_price, float previous_price, float closing_pr
   } else if (current_price < previous_price) {
     lcd.write(byte(1)); // arrow_down
   } else {
-    lcd.print("=");     // same price
+    lcd.print(F("="));     // same price
   }
 
   // Print current price
   lcd.setCursor(2,0);
   lcd.print(current_price);
 
-  // Print BTC sign
+  // Print symbol sign
   lcd.setCursor(10,0);
-  lcd.print(" BTC/$");
+  lcd.print(F(" "));
+  lcd.print(symbol.substring(0, 3));
+  lcd.print(F("/$"));
 
   // Second row
   // Print change over closing price
-  float price_diff = current_price - closing_price;
+  double price_diff = current_price - closing_price;
   lcd.setCursor(0,1);
   if (price_diff >= 0){
-    lcd.print("+");
+    lcd.print(F("+"));
   }
   lcd.print(price_diff);
 
   // Print change in percentage
   lcd.setCursor(9,1);
-  lcd.print(" ");
+  lcd.print(F(" "));
   float perc_diff = (100 * current_price / closing_price) - 100;
   if (perc_diff >= 0){
-    lcd.print("+");
+    lcd.print(F("+"));
   }
   lcd.print(perc_diff);
   lcd.setCursor(15,1);
-  lcd.print("%");
+  lcd.print(F("%"));
 }

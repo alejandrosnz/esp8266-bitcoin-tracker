@@ -27,15 +27,14 @@ byte arrow_down[8] = {
 B00000,B00100,B00100,B00100,
 B10001,B01010,B00100,B00000,};
 
-String current_price_url = "https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT";
-String current_price_url_fingerprint = "5B 5F CA EA D0 43 FC 52 2F D9 E2 EC A0 6C A8 57 70 DB 58 F7";
+String api_host = "http://192.168.1.113:3001";
 
-String closing_price_url = "https://min-api.cryptocompare.com/data/pricemultifull?fsyms={symbol}&tsyms=USD&api_key=e93bd5717285b407ac55d1e2bc0cbbddca5b4080014a1e8a29e07ca44b6dc5de";
-String closing_price_url_fingerprint = "3C DB DB 59 CD 33 75 45 7D 99 D1 39 5A 56 CC BE 0F B1 F6 61";
+String current_price_path = "/api/ticker/current_price/{symbol}";
+String closing_price_path = "/api/ticker/closing_price/{symbol}";
 
 // Add symbols for the tracker to follow: {"BTC", "ETH", "DOGE"}
 String list_of_symbols[] = {"BTC", "ETH"};
-#define SECONDS_TO_DISPLAY_EACH_SYMBOL 5
+#define SECONDS_TO_DISPLAY_EACH_SYMBOL 7
 
 int size_of_list_of_symbols = sizeof(list_of_symbols)/sizeof(String);
 
@@ -44,7 +43,7 @@ int size_of_list_of_symbols = sizeof(list_of_symbols)/sizeof(String);
 #define CURRENT_PRICE "curr"
 
 DynamicJsonDocument list_of_prices(size_of_list_of_symbols * JSON_SIZE_PER_SYMBOL);
-DynamicJsonDocument json_doc(18000);
+DynamicJsonDocument json_doc(1000);
 
 int symbol_index;
 long start_time;
@@ -120,15 +119,14 @@ void loop()
 
       list_of_prices[symbol][CURRENT_PRICE] = new_price;
     }
+    delay(200);
   }
-  // delay(1000);
 }
 
 double get_current_price(String symbol) {
-  String _current_price_url = current_price_url;
-  _current_price_url.replace(F("{symbol}"), symbol);
-  String jsonBuffer = sendGET(_current_price_url, \
-                              current_price_url_fingerprint);
+  String _current_price_path = current_price_path;
+  _current_price_path.replace(F("{symbol}"), symbol);
+  String jsonBuffer = sendGET(api_host, _current_price_path);
   DEBUG_PRINT(jsonBuffer);
 
   DeserializationError error = deserializeJson(json_doc, jsonBuffer);
@@ -140,16 +138,15 @@ double get_current_price(String symbol) {
     return -1;
   }
 
-  String current_price = json_doc[F("lastPrice")];
+  String current_price = json_doc[F("currentPrice")];
 
   return current_price.toDouble();
 }
 
 double get_closing_price(String symbol) {
-  String _closing_price_url = closing_price_url;
-  _closing_price_url.replace(F("{symbol}"), symbol);
-  String jsonBuffer = sendGET(_closing_price_url, \
-                              closing_price_url_fingerprint);
+  String _closing_price_path = closing_price_path;
+  _closing_price_path.replace(F("{symbol}"), symbol);
+  String jsonBuffer = sendGET(api_host, _closing_price_path);
   DEBUG_PRINT(jsonBuffer);
 
   DeserializationError error = deserializeJson(json_doc, jsonBuffer);
@@ -161,23 +158,20 @@ double get_closing_price(String symbol) {
     return -1;
   }
 
-  double closing_price = json_doc[F("RAW")][symbol][F("USD")][F("OPENDAY")];
+  double closing_price = json_doc[F("closingPrice")];
 
   return closing_price;
 }
 
 
-String sendGET(String _url, String _fingerprint) {
-  const char* url = _url.c_str();
-  const char* fingerprint = _fingerprint.c_str();
+String sendGET(String _api_host, String _path) {
+  String url = _api_host + _path;
   
+  WiFiClient client;
   HTTPClient http;
-  
-  if (_url.startsWith(F("https"))) {
-    http.begin(url, fingerprint);
-  } else {
-    http.begin(url);
-  }
+
+  DEBUG_PRINT(url);
+  http.begin(client, url);
     
   // Send HTTP POST request
   digitalWrite(BUILTIN_LED, LOW);

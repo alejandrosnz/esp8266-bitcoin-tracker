@@ -10,6 +10,7 @@ String closing_price_path = "/api/ticker/closing_price/{symbol}";
 
 String list_of_symbols[] = {"BTC", "ETH"};
 #define SECONDS_TO_DISPLAY_EACH_SYMBOL 10
+#define DIFF_PRINT_PERCENTAGE_AND_VALUE false
 
 #define OLED_SDA D1
 #define OLED_SCL D2

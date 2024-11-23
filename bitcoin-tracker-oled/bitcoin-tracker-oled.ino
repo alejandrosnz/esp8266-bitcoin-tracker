@@ -251,17 +251,25 @@ void print_to_screen(double current_price, double previous_price, double closing
     display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
   }
 
+  if (DIFF_PRINT_PERCENTAGE_AND_VALUE == true) {
+    // Print diff %
+    display.setCursor(80, 35);
+    display.setTextSize(1);
+    display.print(abs(((current_price - closing_price) / closing_price) * 100), 2);
+    display.print("%");
 
-  // Print diff %
-  display.setCursor(80, 35);
-  display.setTextSize(1);
-  display.print(abs(((current_price - closing_price) / closing_price) * 100), 2);
-  display.print("%");
+    // // Print diff num
+    display.setCursor(80, 45);
+    display.setTextSize(1);
+    display.print(abs(current_price - closing_price), 2);
 
-  // Print diff num
-  display.setCursor(80, 45);
-  display.setTextSize(1);
-  display.print(abs(current_price - closing_price), 2);
+  } else {
+    // Print larger diff %
+    display.setCursor(80, 37);
+    display.setTextSize(2);
+    display.print(abs(((current_price - closing_price) / closing_price) * 100), 1);
+    display.print("%");
+  }
 
   // Print reference date
   // display.setCursor(110, 40);

@@ -5,7 +5,9 @@
 #include <ArduinoJson.h>
 #include <Wire.h> 
 #include <avr/pgmspace.h>
+
 #include "config.h"
+#include "icons.h"
 
 // #define DEBUG
 #ifdef DEBUG
@@ -238,22 +240,26 @@ void print_to_screen(double current_price, double previous_price, double closing
   display.drawRoundRect(x - 5 , y - 5, 44, 24, 8, SH110X_WHITE);
 
   // Print UP or DOWN
-  display.setCursor(60, 40);
-  display.setTextSize(2);
-  if (current_price > closing_price) {
-    display.print(char(94)); // ^
-  } else {
-    display.print(char(118)); // v para abajo
+  double diff = (current_price - closing_price) / closing_price * 100;
+  if (diff > 2) {
+    display.drawBitmap(59, 37, bitmap_up_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff > 0) {
+    display.drawBitmap(59, 37, bitmap_up_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff < 0) {
+    display.drawBitmap(59, 37, bitmap_down_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff < -2) {
+    display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
   }
 
+
   // Print diff %
-  display.setCursor(75, 35);
+  display.setCursor(80, 35);
   display.setTextSize(1);
   display.print(abs(((current_price - closing_price) / closing_price) * 100), 2);
   display.print("%");
 
   // Print diff num
-  display.setCursor(75, 45);
+  display.setCursor(80, 45);
   display.setTextSize(1);
   display.print(abs(current_price - closing_price), 2);
 

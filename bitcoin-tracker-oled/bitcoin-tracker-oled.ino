@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <Wire.h> 
 #include <avr/pgmspace.h>
+#include "config.h"
 
 // #define DEBUG
 #ifdef DEBUG
@@ -13,25 +14,10 @@
   #define DEBUG_PRINT(x)
 #endif
 
-// Replace with your network credentials
-const char* ssid = "your_ssid_here";
-const char* password = "wifi_pass_here";
-
-const int poll_delay = 1500;
-
-
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
-
-#define OLED_SDA D1
-#define OLED_SCL D2
-#define OLED_I2C_ADDR 0x3c
-#define OLED_WIDTH 128
-#define OLED_HEIGHT 64
-#define OLED_RESET -1
 Adafruit_SH1106G display = Adafruit_SH1106G(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
-
 
 // Create custom symbols for LCD
 byte arrow_up[8] = {
@@ -40,17 +26,6 @@ B00100,B00100,B00100,B00000,};
 byte arrow_down[8] = {
 B00000,B00100,B00100,B00100,
 B10001,B01010,B00100,B00000,};
-
-String api_host = "http://192.168.1.113:3001";
-
-String current_price_path = "/api/ticker/current_price/{symbol}";
-String closing_price_path = "/api/ticker/closing_price/{symbol}";
-
-// Add symbols for the tracker to follow: {"BTC", "ETH", "DOGE"}
-String list_of_symbols[] = {"BTC", "ETH"};
-#define SECONDS_TO_DISPLAY_EACH_SYMBOL 10
-
-int size_of_list_of_symbols = sizeof(list_of_symbols)/sizeof(String);
 
 #define JSON_SIZE_PER_SYMBOL 75
 #define CLOSING_PRICE "clse"

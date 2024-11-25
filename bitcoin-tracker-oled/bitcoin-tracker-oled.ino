@@ -241,13 +241,13 @@ void print_to_screen(double current_price, double previous_price, double closing
 
   // Print UP or DOWN
   double diff = (current_price - closing_price) / closing_price * 100;
-  if (diff > 2) {
+  if (diff >= 2) {
     display.drawBitmap(59, 37, bitmap_up_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff > 0) {
+  } else if (diff >= 0 && diff < 2) {
     display.drawBitmap(59, 37, bitmap_up_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff < 0) {
+  } else if (diff < 0 && diff > -2) {
     display.drawBitmap(59, 37, bitmap_down_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff < -2) {
+  } else if (diff <= -2) {
     display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
   }
 

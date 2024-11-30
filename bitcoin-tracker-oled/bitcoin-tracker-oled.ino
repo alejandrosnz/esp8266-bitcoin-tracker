@@ -4,20 +4,22 @@
 #define ARDUINOJSON_USE_DOUBLE 1
 #include <ArduinoJson.h>
 #include <Wire.h> 
-#include <LiquidCrystal_I2C.h>
 #include <avr/pgmspace.h>
 
+#include "config.h"
+#include "icons.h"
+
+// #define DEBUG
 #ifdef DEBUG
   #define DEBUG_PRINT(x)  Serial.println (x)
 #else
   #define DEBUG_PRINT(x)
 #endif
 
-const char* ssid = "your_ssid_here";
-const char* password = "wifi_pass_here";
-
-// Create LCD object, with I2C address 0x3F y 16 columns x 2 rows
-LiquidCrystal_I2C lcd(0x3F,16,2);
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+#include <Fonts/FreeMonoBold9pt7b.h>
+Adafruit_SH1106G display = Adafruit_SH1106G(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 
 // Create custom symbols for LCD
 byte arrow_up[8] = {
@@ -26,17 +28,6 @@ B00100,B00100,B00100,B00000,};
 byte arrow_down[8] = {
 B00000,B00100,B00100,B00100,
 B10001,B01010,B00100,B00000,};
-
-String api_host = "http://192.168.1.113:3001";
-
-String current_price_path = "/api/ticker/current_price/{symbol}";
-String closing_price_path = "/api/ticker/closing_price/{symbol}";
-
-// Add symbols for the tracker to follow: {"BTC", "ETH", "DOGE"}
-String list_of_symbols[] = {"BTC", "ETH"};
-#define SECONDS_TO_DISPLAY_EACH_SYMBOL 7
-
-int size_of_list_of_symbols = sizeof(list_of_symbols)/sizeof(String);
 
 #define JSON_SIZE_PER_SYMBOL 75
 #define CLOSING_PRICE "clse"
@@ -53,13 +44,18 @@ void setup()
   // Start Serial Port with baud rate 9600
   Serial.begin(9600);
   
-  // Start LCD and turn backlight
-  lcd.init();
-  lcd.backlight();
-
-  // Create custom chars
-  lcd.createChar(0, arrow_up);
-  lcd.createChar(1, arrow_down);
+  // OLED setup
+  Wire.begin(OLED_SDA, OLED_SCL);
+  delay(250);
+  display.begin(OLED_I2C_ADDR, true);
+  display.setTextColor(SH110X_WHITE);
+  display.clearDisplay();
+  display.println("Connecting...");
+  display.display();
+  
+  // // Create custom chars
+  // lcd.createChar(0, arrow_up);
+  // lcd.createChar(1, arrow_down);
 
   // Set built-in led to output
   pinMode(BUILTIN_LED, OUTPUT);
@@ -70,13 +66,13 @@ void setup()
 
   while (WiFi.status() != WL_CONNECTED){
     delay(1000);
-    Serial.println(F("Connecting..."));
-    lcd.clear();
-    lcd.print(F("Connecting..."));
+    Serial.print(".");
   }
-  Serial.println(F("Connected!"));
-  lcd.clear();
-  lcd.print(F("Connected!"));
+  Serial.print("Connected to WiFi! IP: ");
+  Serial.println(WiFi.localIP());
+  display.clearDisplay();
+  display.println("Connected to WiFi!");
+  display.display();
 
   // Get initial price values
   for (byte i = 0; i < size_of_list_of_symbols; i++) {
@@ -119,7 +115,7 @@ void loop()
 
       list_of_prices[symbol][CURRENT_PRICE] = new_price;
     }
-    delay(200);
+    delay(poll_delay);
   }
 }
 
@@ -133,8 +129,9 @@ double get_current_price(String symbol) {
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
-    lcd.clear();
-    lcd.print(F("Failed to parse JSON"));
+    display.clearDisplay();
+    display.print(F("Failed to parse JSON"));
+    display.display();
     return -1;
   }
 
@@ -153,8 +150,9 @@ double get_closing_price(String symbol) {
   if (error) {
     Serial.print(F("Failed to parse JSON"));
     Serial.println(error.f_str());
-    lcd.clear();
-    lcd.print(F("Failed to parse JSON"));
+    display.clearDisplay();
+    display.print(F("Failed to parse JSON"));
+    display.display();
     return -1;
   }
 
@@ -196,46 +194,92 @@ String sendGET(String _api_host, String _path) {
 }
 
 void print_to_screen(double current_price, double previous_price, double closing_price, String symbol) {
-  lcd.clear();
-  
-  // First row
-  // Print up arrow, down arrow or equals sign
-  lcd.setCursor(0,0);
-  if (current_price > previous_price) {
-    lcd.write(byte(0)); // arrow_up
-  } else if (current_price < previous_price) {
-    lcd.write(byte(1)); // arrow_down
+  display.clearDisplay();
+
+  // Print PRICE
+  display.setTextSize(3);
+  String current_price_str = String(current_price, 4);
+  int dec_index = current_price_str.indexOf('.');
+  if (current_price >= 1000000) {  // + 1M
+    display.setCursor(0, 4);
+    display.print(current_price_str.substring(0, dec_index));
+  } else if (current_price >= 100000) { // 100K to 1M
+    display.setCursor(2, 4);
+    display.print(current_price_str.substring(0, dec_index));
+  } else if (current_price >= 1000) {   // 1K to 100K
+    display.setCursor(5, 4);
+    display.print(current_price_str.substring(0, dec_index));
+    display.setTextSize(2);
+    display.setCursor(dec_index * 17 + 5, 11);
+    display.print(current_price_str.substring(dec_index, dec_index + (7 - dec_index)));
+  } else if (current_price >= 10) {     // 10 to 1K
+    display.setCursor(20, 4);
+    display.print(current_price_str.substring(0, dec_index));
+    display.setTextSize(2);
+    display.setCursor(dec_index * 17 + 20, 11);
+    display.print(current_price_str.substring(dec_index, dec_index + (6 - dec_index)));
+  } else {  // less than 10$
+    display.setCursor(5, 4);
+    display.print(current_price_str);
+  }
+
+  // Print $ sign
+  if (current_price <= 100000) {
+    display.setCursor(115, 11);
+    display.setTextSize(2);
+    display.print("$");
+  }
+
+  // Print Crypto symbol
+  display.setCursor(15, 37);
+  display.setTextSize(2);
+  display.print(symbol.substring(0, 3));
+
+  int x = 15;
+  int y = 37;
+  display.drawRoundRect(x - 5 , y - 5, 44, 24, 8, SH110X_WHITE);
+
+  // Print UP or DOWN
+  double diff = (current_price - closing_price) / closing_price * 100;
+  if (diff >= 3.5) {
+    display.drawBitmap(59, 37, bitmap_up_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff >= 1.5 && diff < 3.5) {
+    display.drawBitmap(59, 37, bitmap_up_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff >= 0 && diff < 1.5) {
+    display.drawBitmap(59, 37, bitmap_up_thin, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff < 0 && diff > -1.5) {
+    display.drawBitmap(59, 37, bitmap_down_thin, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff <= -1.5 && diff > -3.5) {
+    display.drawBitmap(59, 37, bitmap_down_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  } else if (diff <= -3.5) {
+    display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
+  }
+
+  if (DIFF_PRINT_PERCENTAGE_AND_VALUE == true) {
+    // Print diff %
+    display.setCursor(80, 35);
+    display.setTextSize(1);
+    display.print(abs(((current_price - closing_price) / closing_price) * 100), 2);
+    display.print("%");
+
+    // // Print diff num
+    display.setCursor(80, 45);
+    display.setTextSize(1);
+    display.print(abs(current_price - closing_price), 2);
+
   } else {
-    lcd.print(F("="));     // same price
+    // Print larger diff %
+    display.setCursor(80, 37);
+    display.setTextSize(2);
+    display.print(abs(((current_price - closing_price) / closing_price) * 100), 1);
+    display.print("%");
   }
 
-  // Print current price
-  lcd.setCursor(2,0);
-  lcd.print(current_price);
+  // Print reference date
+  // display.setCursor(110, 40);
+  // display.setTextSize(1);
+  // display.print("1D");
 
-  // Print symbol sign
-  lcd.setCursor(10,0);
-  lcd.print(F(" "));
-  lcd.print(symbol.substring(0, 3));
-  lcd.print(F("/$"));
-
-  // Second row
-  // Print change over closing price
-  double price_diff = current_price - closing_price;
-  lcd.setCursor(0,1);
-  if (price_diff >= 0){
-    lcd.print(F("+"));
-  }
-  lcd.print(price_diff);
-
-  // Print change in percentage
-  lcd.setCursor(9,1);
-  lcd.print(F(" "));
-  float perc_diff = (100 * current_price / closing_price) - 100;
-  if (perc_diff >= 0){
-    lcd.print(F("+"));
-  }
-  lcd.print(perc_diff);
-  lcd.setCursor(15,1);
-  lcd.print(F("%"));
+  // Refresh
+  display.display();
 }

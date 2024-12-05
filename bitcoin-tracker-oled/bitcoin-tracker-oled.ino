@@ -204,7 +204,7 @@ void print_to_screen(double current_price, double previous_price, double closing
     display.setCursor(0, 4);
     display.print(current_price_str.substring(0, dec_index));
   } else if (current_price >= 100000) { // 100K to 1M
-    display.setCursor(2, 4);
+    display.setCursor(5, 4);
     display.print(current_price_str.substring(0, dec_index));
   } else if (current_price >= 1000) {   // 1K to 100K
     display.setCursor(5, 4);
@@ -224,7 +224,7 @@ void print_to_screen(double current_price, double previous_price, double closing
   }
 
   // Print $ sign
-  if (current_price <= 100000) {
+  if (current_price < 1000000) {
     display.setCursor(115, 11);
     display.setTextSize(2);
     display.print("$");

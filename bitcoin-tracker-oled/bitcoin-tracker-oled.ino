@@ -255,11 +255,12 @@ void print_to_screen(double current_price, double previous_price, double closing
     display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
   }
 
+  float percentage_diff = abs(((current_price - closing_price) / closing_price) * 100);
   if (DIFF_PRINT_PERCENTAGE_AND_VALUE == true) {
     // Print diff %
     display.setCursor(80, 35);
     display.setTextSize(1);
-    display.print(abs(((current_price - closing_price) / closing_price) * 100), 2);
+    display.print(percentage_diff, 2);
     display.print("%");
 
     // // Print diff num
@@ -271,7 +272,12 @@ void print_to_screen(double current_price, double previous_price, double closing
     // Print larger diff %
     display.setCursor(80, 37);
     display.setTextSize(2);
-    display.print(abs(((current_price - closing_price) / closing_price) * 100), 1);
+    display.print(percentage_diff, (percentage_diff < 10) ? 1 : 0);
+    if (percentage_diff >= 10) {
+      display.setTextSize(1);
+      display.print(" ");
+      display.setTextSize(2);
+    }
     display.print("%");
   }
 

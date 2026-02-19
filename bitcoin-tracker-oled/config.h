@@ -1,9 +1,21 @@
+/**
+ * @file config.h
+ * @brief User-facing configuration for the Bitcoin tracker.
+ *
+ * This is the only file you need to edit before flashing:
+ *  1. Set @c ssid and @c password to your WiFi credentials.
+ *  2. Adjust @c list_of_symbols to the Binance base assets you want to track.
+ *  3. Optionally tweak timing, OLED pins, or TLS buffer sizes.
+ */
 #ifndef CONFIG_H
 #define CONFIG_H
 
 // ── WiFi ─────────────────────────────────────────────────────────────────────
-const char* ssid     = "your_ssid_here";
-const char* password = "wifi_pass_here";
+// static gives these internal linkage so each .cpp translation unit gets its
+// own copy — prevents "multiple definition" linker errors when config.h is
+// included by more than one .cpp file (api.cpp, display_utils.cpp, etc.).
+static const char* const ssid     = "your_ssid_here";
+static const char* const password = "wifi_pass_here";
 
 // ── Binance API ───────────────────────────────────────────────────────────────
 // Direct connection to Binance – no proxy needed.
@@ -12,7 +24,7 @@ const char* password = "wifi_pass_here";
 //   Current price : GET /api/v3/ticker/price?symbol={SYMBOL}USDT
 //   Opening price : GET /api/v3/klines?symbol={SYMBOL}USDT&interval=1d&limit=1
 //                   → klines[0][1] = daily open = midnight UTC (same as OPENDAY)
-const char* BINANCE_HOST = "api.binance.com";
+static const char* const BINANCE_HOST = "api.binance.com";
 
 // TLS buffer sizes for BearSSL on ESP8266.
 // 512/512 keeps RAM usage low (~28 KB vs the default ~60 KB).
@@ -23,7 +35,7 @@ const char* BINANCE_HOST = "api.binance.com";
 // ── Symbols ───────────────────────────────────────────────────────────────────
 // Add/remove symbols as needed. Each must be a valid Binance base asset
 // traded against USDT (e.g. "BTC" → BTCUSDT).
-const char* list_of_symbols[] = {"BTC", "ETH"};
+static const char* const list_of_symbols[] = {"BTC", "ETH"};
 
 // Seconds each symbol is shown on screen before rotating to the next one
 #define SECONDS_TO_DISPLAY_EACH_SYMBOL 10

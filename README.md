@@ -1,61 +1,196 @@
 # ESP8266 Bitcoin Tracker
 
-A Bitcoin price tracker for the ESP8266 WiFi module, designed to display real-time cryptocurrency prices on an OLED or LCD displays.
+A real-time cryptocurrency price tracker for the ESP8266, displaying live prices and daily change indicators on an OLED display. Connects directly to the Binance API — no proxy or external server required.
 
 ![Bitcoin Tracker OLED](img/bitcoin-tracker-oled.jpg)
 ![Bitcoin Tracker LCD](img/bitcoin-tracker-lcd.jpeg)
 
 ## Features
-- Real-time Bitcoin price tracking
-- OLED display for clear visualization
-- Customizable symbols and price display
-- WiFi connectivity for fetching live data
-- Visual indicators for price changes (up/down arrows)
 
-## Requirements
-- ESP8266 WiFi module
-- OLED display (compatible with SH1106)
-- Arduino IDE
-- Libraries:
-  - `ESP8266WiFi`
-  - `ESP8266HTTPClient`
-  - `ArduinoJson`
-  - `Adafruit_GFX`
-  - `Adafruit_SH110X`
-  - `Wire`
+- **Real-time crypto price tracking** — updates every 5 seconds
+- **Direct Binance API** — no proxy, no external dependencies
+- **Multi-asset support** — display and rotate between multiple cryptocurrencies (BTC, ETH, etc.)
+- **Daily change indicator** — visual arrows and % change vs midnight UTC open
+- **Memory-efficient** — stream-based JSON parsing, optimised for ESP8266's limited RAM
+- **Low TLS overhead** — reduced BearSSL buffers (~28 KB vs default ~60 KB)
 
-## Installation
+## Hardware Requirements
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/bitcoin-tracker-oled.git
-   cd bitcoin-tracker-oled
-   ```
+- **ESP8266** WiFi module (NodeMCU, Wemos D1 Mini, or compatible)
+- **SH1106G OLED** 128×64 display via I2C
+  - SDA → pin D1
+  - SCL → pin D2
+  - (configurable in `config.h`)
 
-2. **Install required libraries:**
-   - Open the Arduino IDE.
-   - Go to **Sketch** > **Include Library** > **Manage Libraries**.
-   - Search for and install the required libraries listed above.
+## Software Requirements
 
-3. **Configure your WiFi credentials:**
-   - Open `config.h` and set your `ssid` and `password` for WiFi connectivity.
+- Arduino IDE (1.8.13 or later)
+- ESP8266 board package installed in the Arduino IDE
 
-4. **Upload the code:**
-   - Connect your ESP8266 to your computer.
-   - Select the correct board and port in the Arduino IDE.
-   - Upload the `bitcoin-tracker-oled.ino` file.
+### Required Libraries
 
-## Usage
-- Once uploaded, the ESP8266 will connect to your WiFi network.
-- The OLED display will show the current Bitcoin price and other relevant information.
-- The display will update periodically, showing price changes with visual indicators.
+Install via **Sketch** → **Include Library** → **Manage Libraries**:
 
-## How to connect the ESP8266 to the I2C display
-Refer to the following connection diagram for wiring your ESP8266 to the display:
+| Library | Author | Purpose |
+|---------|--------|---------|
+| `ArduinoJson` | Benoit Blanchon | Stream-based JSON parsing |
+| `Adafruit GFX Library` | Adafruit | Graphics primitives |
+| `Adafruit SH110X` | Adafruit | SH1106G OLED driver |
 
+The other libraries (`ESP8266WiFi`, `ESP8266HTTPClient`, `Wire`) are included with the ESP8266 board package.
+
+## Quick Start
+
+### 1. Install the Board Package
+
+In the Arduino IDE:
+- **File** → **Preferences**
+- Add to **Additional Board Manager URLs**:
+  ```
+  http://arduino.esp8266.com/stable/package_esp8266com_index.json
+  ```
+- **Tools** → **Board** → **Board Manager**
+- Search for `esp8266` and install
+
+### 2. Clone and Open the Project
+
+```bash
+git clone https://github.com/yourusername/esp8266-bitcoin-tracker.git
+cd esp8266-bitcoin-tracker/bitcoin-tracker-oled
+```
+
+Open `bitcoin-tracker-oled.ino` in the Arduino IDE.
+
+### 3. Configure WiFi and Symbols
+
+Edit `config.h`:
+
+```cpp
+static const char* const ssid     = "your_ssid_here";
+static const char* const password = "wifi_pass_here";
+
+static const char* const list_of_symbols[] = {"BTC", "ETH"};  // Add your symbols
+```
+
+### 4. Flash to Your ESP8266
+
+- Connect your ESP8266 via USB
+- **Tools** → **Board** → select your board (e.g. *NodeMCU 1.0*)
+- **Tools** → **Port** → select the COM port
+- **Sketch** → **Upload**
+
+### 5. Done!
+
+The OLED will display:
+- Current price with adaptive text sizing
+- Symbol label in a rounded rectangle
+- Daily change indicator (up/down arrow)
+- Percentage change vs midnight UTC open price
+
+Symbols rotate every 10 seconds (configurable via `SECONDS_TO_DISPLAY_EACH_SYMBOL` in `config.h`).
+
+## Hardware Wiring
+
+Connect the SH1106G OLED to your ESP8266 via I2C:
+
+```
+ESP8266         SH1106G OLED
+─────────────────────────────
+D1 (GPIO5)  ──→  SDA
+D2 (GPIO4)  ──→  SCL
+GND         ──→  GND
+3V3         ──→  VCC
+```
+
+Refer to the connection diagram for more details:
 ![Connections](img/connections.jpeg)
 
+## Configuration
+
+All settings are in `config.h`:
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `ssid` | `"your_ssid_here"` | Your WiFi network name |
+| `password` | `"wifi_pass_here"` | Your WiFi password |
+| `BINANCE_HOST` | `"api.binance.com"` | Binance REST API hostname |
+| `list_of_symbols` | `{"BTC", "ETH"}` | Symbols to track (any Binance base asset) |
+| `SECONDS_TO_DISPLAY_EACH_SYMBOL` | `10` | Seconds to show each symbol before rotating |
+| `DIFF_PRINT_PERCENTAGE_AND_VALUE` | `false` | Show % only (`false`) or % + $ change (`true`) |
+| `poll_delay` | `5000` | Milliseconds between price polls |
+| `TLS_READ_BUFFER` / `TLS_WRITE_BUFFER` | `512` | TLS buffer sizes; increase to `1024`/`4096` if connections fail |
+
+## API Endpoints Used
+
+The sketch connects directly to Binance (no proxy):
+
+| Endpoint | Purpose | Response Size |
+|----------|---------|---|
+| `GET /api/v3/ticker/price?symbol={SYMBOL}USDT` | Current price | ~60 bytes |
+| `GET /api/v3/klines?symbol={SYMBOL}USDT&interval=1d&limit=1` | Daily open price (midnight UTC) | ~160 bytes |
+
+Both responses are parsed as streams (never loaded into a `String`), so the full payloads are not held in memory.
+
+## Memory Optimization
+
+This sketch was designed to run reliably on ESP8266 devices with limited RAM:
+
+- **Stream-based JSON parsing** — responses parsed directly from the HTTP stream, never copied to a String
+- **ArduinoJson filters** — only needed fields are allocated in the JSON document
+- **Static pricing arrays** — prices stored in plain `double[]`, no JSON document overhead
+- **Reduced TLS buffers** — BearSSL configured with 512-byte buffers instead of the default ~60 KB
+- **Static storage** — configuration and symbol strings stored with `static` to avoid linker conflicts
+
 ## Troubleshooting
-- Ensure your WiFi credentials are correct.
-- Check the wiring connections between the ESP8266 and the display.
-- Monitor the Serial output for debugging information.
+
+### WiFi won't connect
+- Check `config.h` — `ssid` and `password` must match your network exactly
+- Ensure the ESP8266 is within WiFi range
+- Monitor the **Serial Monitor** (9600 baud) for debugging info
+
+### Display shows garbled text
+- Verify the I2C wiring (SDA/SCL to correct pins)
+- Check that the display address is correct (default `0x3C`)
+- If using a different display address, update `OLED_I2C_ADDR` in `config.h`
+
+### HTTPS connection fails
+- TLS handshake failures can occur if `TLS_READ_BUFFER` is too small
+- Try increasing it in `config.h`:
+  ```cpp
+  #define TLS_READ_BUFFER  1024    // ← increase from 512
+  #define TLS_WRITE_BUFFER 1024    // ← increase from 512
+  ```
+
+### Prices not updating
+- Check **Serial Monitor** for error messages (run with `DEBUG` enabled in `debug.h`)
+- Verify Binance API is accessible from your network (try visiting `https://api.binance.com/api/v3/ping`)
+- Increase `poll_delay` if requests are timing out
+
+### Enable debug output
+- In `debug.h`, uncomment the `#define DEBUG` line
+- Recompile and flash
+- Open **Serial Monitor** at 9600 baud to see detailed logs
+
+## File Structure
+
+```
+bitcoin-tracker-oled/
+├── bitcoin-tracker-oled.ino    ← Entry point (setup/loop)
+├── config.h                    ← User configuration (edit this!)
+├── debug.h                     ← Debug logging macro
+├── api.h / api.cpp             ← Binance HTTPS functions
+├── display_utils.h / .cpp      ← OLED rendering logic
+└── icons.h                     ← Direction arrow bitmaps
+```
+
+## License
+
+MIT
+
+## Contributing
+
+Pull requests welcome! Please ensure code is well-documented with Doxygen comments.
+
+## Disclaimer
+
+This project is provided as-is. The author assumes no liability for any damages or losses incurred through its use. Cryptocurrency prices are provided by Binance and may be subject to delays or inaccuracies.

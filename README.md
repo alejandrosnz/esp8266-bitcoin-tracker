@@ -137,7 +137,7 @@ This sketch was designed to run reliably on ESP8266 devices with limited RAM:
 - **Stream-based JSON parsing** — responses parsed directly from the HTTP stream, never copied to a String
 - **ArduinoJson filters** — only needed fields are allocated in the JSON document
 - **Static pricing arrays** — prices stored in plain `double[]`, no JSON document overhead
-- **Optimised TLS buffers** — BearSSL configured with 1024-byte buffers (~42 KB vs default ~60 KB)
+- **Optimised TLS buffers** — BearSSL configured with 1024-byte buffers (~28 KB vs default ~60 KB)
 - **Static storage** — configuration and symbol strings stored with `static` to avoid linker conflicts
 
 ## Troubleshooting

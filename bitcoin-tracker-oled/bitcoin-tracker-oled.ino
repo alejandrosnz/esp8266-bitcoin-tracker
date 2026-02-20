@@ -1,291 +1,134 @@
+/**
+ * @file bitcoin-tracker-oled.ino
+ * @brief ESP8266 crypto price tracker with SH1106G OLED display.
+ *
+ * Displays real-time prices and a daily-change indicator for one or more
+ * crypto assets fetched directly from the Binance REST API over HTTPS.
+ * No proxy or external server is required.
+ *
+ * ── Hardware ────────────────────────────────────────────────────────────────
+ *  - ESP8266 board (NodeMCU, Wemos D1 Mini, or compatible)
+ *  - SH1106G 128×64 OLED via I2C (default address 0x3C)
+ *    SDA → D1  |  SCL → D2  (configurable in config.h)
+ *
+ * ── Dependencies (Arduino Library Manager) ──────────────────────────────────
+ *  - ArduinoJson  ≥ 6.x   (Benoit Blanchon)
+ *  - Adafruit GFX Library
+ *  - Adafruit SH110X
+ *
+ * ── Quick start ─────────────────────────────────────────────────────────────
+ *  1. Open config.h and set your WiFi credentials and desired symbols.
+ *  2. Flash to your ESP8266 via the Arduino IDE.
+ *  3. Done — no Docker, no proxy, no API key required.
+ *
+ * ── How it works ────────────────────────────────────────────────────────────
+ *  setup():  Connects to WiFi, then for every symbol fetches
+ *              • the midnight-UTC open price  (Binance klines, daily candle)
+ *              • the latest traded price      (Binance ticker/price)
+ *
+ *  loop():   Every poll_delay ms, re-fetches the current price for the
+ *            active symbol and redraws the screen if the price changed.
+ *            Symbols rotate every SECONDS_TO_DISPLAY_EACH_SYMBOL seconds.
+ *
+ * ── Memory highlights ───────────────────────────────────────────────────────
+ *  - Prices are stored in plain double[] arrays (no JSON document overhead).
+ *  - API responses are parsed as streams (never loaded into a String).
+ *  - ArduinoJson filters ensure only needed fields are allocated.
+ *  - BearSSL TLS buffers are capped via config.h (~28 KB vs default ~60 KB).
+ */
+
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
-#define ARDUINOJSON_USE_DOUBLE 1
-#include <ArduinoJson.h>
-#include <Wire.h> 
+#include <Wire.h>
 #include <avr/pgmspace.h>
-
-#include "config.h"
-#include "icons.h"
-
-// #define DEBUG
-#ifdef DEBUG
-  #define DEBUG_PRINT(x)  Serial.println (x)
-#else
-  #define DEBUG_PRINT(x)
-#endif
-
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
-Adafruit_SH1106G display = Adafruit_SH1106G(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 
-// Create custom symbols for LCD
-byte arrow_up[8] = {
-B00000,B00100,B01010,B10101,
-B00100,B00100,B00100,B00000,};
-byte arrow_down[8] = {
-B00000,B00100,B00100,B00100,
-B10001,B01010,B00100,B00000,};
+#include "config.h"
+#include "debug.h"
+#include "api.h"
+#include "display_utils.h"
 
-#define JSON_SIZE_PER_SYMBOL 75
-#define CLOSING_PRICE "clse"
-#define CURRENT_PRICE "curr"
+// ── Globals ───────────────────────────────────────────────────────────────────
 
-DynamicJsonDocument list_of_prices(size_of_list_of_symbols * JSON_SIZE_PER_SYMBOL);
-DynamicJsonDocument json_doc(1000);
+Adafruit_SH1106G display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 
-int symbol_index;
-long start_time;
+/// Last known price for each symbol (index mirrors list_of_symbols[]).
+double current_prices[size_of_list_of_symbols];
 
-void setup() 
-{
-  // Start Serial Port with baud rate 9600
+/// Midnight-UTC open price for each symbol, fetched once at boot.
+double closing_prices[size_of_list_of_symbols];
+
+int  symbol_index = 0;
+long start_time   = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+void setup() {
   Serial.begin(9600);
-  
-  // OLED setup
+
+  // OLED init
   Wire.begin(OLED_SDA, OLED_SCL);
   delay(250);
   display.begin(OLED_I2C_ADDR, true);
   display.setTextColor(SH110X_WHITE);
   display.clearDisplay();
-  display.println("Connecting...");
+  display.println(F("Connecting..."));
   display.display();
-  
-  // // Create custom chars
-  // lcd.createChar(0, arrow_up);
-  // lcd.createChar(1, arrow_down);
 
-  // Set built-in led to output
+  // Built-in LED is active-low on most ESP8266 boards (HIGH = off)
   pinMode(BUILTIN_LED, OUTPUT);
   digitalWrite(BUILTIN_LED, HIGH);
 
-  // Start Wi-Fi connection
+  // Wi-Fi
   WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED){
+  while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
-    Serial.print(".");
+    Serial.print('.');
   }
-  Serial.print("Connected to WiFi! IP: ");
+  Serial.print(F("Connected! IP: "));
   Serial.println(WiFi.localIP());
   display.clearDisplay();
-  display.println("Connected to WiFi!");
+  display.println(F("WiFi connected!"));
   display.display();
 
-  // Get initial price values
-  for (byte i = 0; i < size_of_list_of_symbols; i++) {
-    String symbol = list_of_symbols[i];
-    list_of_prices[symbol][CLOSING_PRICE] = get_closing_price(symbol);
-    list_of_prices[symbol][CURRENT_PRICE] = get_current_price(symbol);
+  // Fetch initial prices for all configured symbols
+  for (int i = 0; i < size_of_list_of_symbols; i++) {
+    closing_prices[i] = get_closing_price(list_of_symbols[i]);
+    current_prices[i] = get_current_price(list_of_symbols[i]);
   }
-  // Print first price values
-  print_to_screen(list_of_prices[list_of_symbols[0]][CURRENT_PRICE], \
-                  list_of_prices[list_of_symbols[0]][CURRENT_PRICE], \
-                  list_of_prices[list_of_symbols[0]][CLOSING_PRICE], \
-                  list_of_symbols[0]);
-  
-  symbol_index = 0;
+
+  // Show the first symbol immediately
+  print_to_screen(display,
+                  current_prices[0], current_prices[0],
+                  closing_prices[0], list_of_symbols[0]);
+
   start_time = millis();
 }
 
-void loop() 
-{
-  String symbol;
+// ─────────────────────────────────────────────────────────────────────────────
 
-  if (WiFi.status() == WL_CONNECTED) {  
-    long current_millis = millis();
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) return;
 
-    if(current_millis > start_time + (SECONDS_TO_DISPLAY_EACH_SYMBOL * 1000)){
-      start_time = current_millis;
-      symbol_index += 1;
-      if (symbol_index >= size_of_list_of_symbols) {
-        symbol_index = 0;
-      }
-    }
-    symbol = list_of_symbols[symbol_index];
-    
-    double new_price = get_current_price(symbol);
-    if (new_price != list_of_prices[symbol][CURRENT_PRICE]) {
-      print_to_screen(new_price, \
-                      list_of_prices[symbol][CURRENT_PRICE], \
-                      list_of_prices[symbol][CLOSING_PRICE], \
-                      symbol);
+  long now = millis();
 
-      list_of_prices[symbol][CURRENT_PRICE] = new_price;
-    }
-    delay(poll_delay);
-  }
-}
-
-double get_current_price(String symbol) {
-  String _current_price_path = current_price_path;
-  _current_price_path.replace(F("{symbol}"), symbol);
-  String jsonBuffer = sendGET(api_host, _current_price_path);
-  DEBUG_PRINT(jsonBuffer);
-
-  DeserializationError error = deserializeJson(json_doc, jsonBuffer);
-  if (error) {
-    Serial.print(F("Failed to parse JSON"));
-    Serial.println(error.f_str());
-    display.clearDisplay();
-    display.print(F("Failed to parse JSON"));
-    display.display();
-    return -1;
+  // Rotate to the next symbol once the display interval has elapsed
+  if (now > start_time + (SECONDS_TO_DISPLAY_EACH_SYMBOL * 1000L)) {
+    start_time   = now;
+    symbol_index = (symbol_index + 1) % size_of_list_of_symbols;
   }
 
-  String current_price = json_doc[F("currentPrice")];
+  double new_price = get_current_price(list_of_symbols[symbol_index]);
 
-  return current_price.toDouble();
-}
-
-double get_closing_price(String symbol) {
-  String _closing_price_path = closing_price_path;
-  _closing_price_path.replace(F("{symbol}"), symbol);
-  String jsonBuffer = sendGET(api_host, _closing_price_path);
-  DEBUG_PRINT(jsonBuffer);
-
-  DeserializationError error = deserializeJson(json_doc, jsonBuffer);
-  if (error) {
-    Serial.print(F("Failed to parse JSON"));
-    Serial.println(error.f_str());
-    display.clearDisplay();
-    display.print(F("Failed to parse JSON"));
-    display.display();
-    return -1;
+  // Only redraw when the price has actually changed (avoids flicker)
+  if (new_price > 0 && new_price != current_prices[symbol_index]) {
+    print_to_screen(display,
+                    new_price,
+                    current_prices[symbol_index],
+                    closing_prices[symbol_index],
+                    list_of_symbols[symbol_index]);
+    current_prices[symbol_index] = new_price;
   }
 
-  double closing_price = json_doc[F("closingPrice")];
-
-  return closing_price;
-}
-
-
-String sendGET(String _api_host, String _path) {
-  String url = _api_host + _path;
-  
-  WiFiClient client;
-  HTTPClient http;
-
-  DEBUG_PRINT(url);
-  http.begin(client, url);
-    
-  // Send HTTP POST request
-  digitalWrite(BUILTIN_LED, LOW);
-  int httpResponseCode = http.GET();
-  digitalWrite(BUILTIN_LED, HIGH);
-  
-  String payload = "{}"; 
-  
-  if (httpResponseCode > 0) {
-    Serial.print(F("HTTP Response code: "));
-    Serial.println(httpResponseCode);
-    payload = http.getString();
-  }
-  else {
-    Serial.print(F("HTTP error! "));
-    Serial.println(httpResponseCode);
-  }
-  // Free resources
-  http.end();
-
-  return payload;
-}
-
-void print_to_screen(double current_price, double previous_price, double closing_price, String symbol) {
-  display.clearDisplay();
-
-  // Print PRICE
-  display.setTextSize(3);
-  String current_price_str = String(current_price, 4);
-  int dec_index = current_price_str.indexOf('.');
-  if (current_price >= 1000000) {  // + 1M
-    display.setCursor(0, 4);
-    display.print(current_price_str.substring(0, dec_index));
-  } else if (current_price >= 100000) { // 100K to 1M
-    display.setCursor(5, 4);
-    display.print(current_price_str.substring(0, dec_index));
-  } else if (current_price >= 1000) {   // 1K to 100K
-    display.setCursor(5, 4);
-    display.print(current_price_str.substring(0, dec_index));
-    display.setTextSize(2);
-    display.setCursor(dec_index * 17 + 5, 11);
-    display.print(current_price_str.substring(dec_index, dec_index + (7 - dec_index)));
-  } else if (current_price >= 10) {     // 10 to 1K
-    display.setCursor(20, 4);
-    display.print(current_price_str.substring(0, dec_index));
-    display.setTextSize(2);
-    display.setCursor(dec_index * 17 + 20, 11);
-    display.print(current_price_str.substring(dec_index, dec_index + (6 - dec_index)));
-  } else {  // less than 10$
-    display.setCursor(5, 4);
-    display.print(current_price_str);
-  }
-
-  // Print $ sign
-  if (current_price < 1000000) {
-    display.setCursor(115, 11);
-    display.setTextSize(2);
-    display.print("$");
-  }
-
-  // Print Crypto symbol
-  display.setCursor(15, 37);
-  display.setTextSize(2);
-  display.print(symbol.substring(0, 3));
-
-  int x = 15;
-  int y = 37;
-  display.drawRoundRect(x - 5 , y - 5, 44, 24, 8, SH110X_WHITE);
-
-  // Print UP or DOWN
-  double diff = (current_price - closing_price) / closing_price * 100;
-  if (diff >= 3.5) {
-    display.drawBitmap(59, 37, bitmap_up_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff >= 1.5 && diff < 3.5) {
-    display.drawBitmap(59, 37, bitmap_up_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff >= 0 && diff < 1.5) {
-    display.drawBitmap(59, 37, bitmap_up_thin, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff < 0 && diff > -1.5) {
-    display.drawBitmap(59, 37, bitmap_down_thin, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff <= -1.5 && diff > -3.5) {
-    display.drawBitmap(59, 37, bitmap_down_single, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  } else if (diff <= -3.5) {
-    display.drawBitmap(59, 37, bitmap_down_double, ICON_WIDTH, ICON_HEIGHT, SH110X_WHITE);
-  }
-
-  float percentage_diff = abs(((current_price - closing_price) / closing_price) * 100);
-  if (DIFF_PRINT_PERCENTAGE_AND_VALUE == true) {
-    // Print diff %
-    display.setCursor(80, 35);
-    display.setTextSize(1);
-    display.print(percentage_diff, 2);
-    display.print("%");
-
-    // // Print diff num
-    display.setCursor(80, 45);
-    display.setTextSize(1);
-    display.print(abs(current_price - closing_price), 2);
-
-  } else {
-    // Print larger diff %
-    display.setCursor(80, 37);
-    display.setTextSize(2);
-    display.print(percentage_diff, (percentage_diff < 10) ? 1 : 0);
-    if (percentage_diff >= 10) {
-      display.setTextSize(1);
-      display.print(" ");
-      display.setTextSize(2);
-    }
-    display.print("%");
-  }
-
-  // Print reference date
-  // display.setCursor(110, 40);
-  // display.setTextSize(1);
-  // display.print("1D");
-
-  // Refresh
-  display.display();
+  delay(poll_delay);
 }

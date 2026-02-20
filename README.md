@@ -3,7 +3,6 @@
 A real-time cryptocurrency price tracker for the ESP8266, displaying live prices and daily change indicators on an OLED display. Connects directly to the Binance API — no proxy or external server required.
 
 ![Bitcoin Tracker OLED](img/bitcoin-tracker-oled.jpg)
-![Bitcoin Tracker LCD](img/bitcoin-tracker-lcd.jpeg)
 
 ## Features
 
@@ -118,7 +117,7 @@ All settings are in `config.h`:
 | `SECONDS_TO_DISPLAY_EACH_SYMBOL` | `10` | Seconds to show each symbol before rotating |
 | `DIFF_PRINT_PERCENTAGE_AND_VALUE` | `false` | Show % only (`false`) or % + $ change (`true`) |
 | `poll_delay` | `5000` | Milliseconds between price polls |
-| `TLS_READ_BUFFER` / `TLS_WRITE_BUFFER` | `512` | TLS buffer sizes; increase to `1024`/`4096` if connections fail |
+| `TLS_READ_BUFFER` / `TLS_WRITE_BUFFER` | `1024` | TLS buffer sizes; increase to `2048` if `-5` errors occur |
 
 ## API Endpoints Used
 
@@ -138,7 +137,7 @@ This sketch was designed to run reliably on ESP8266 devices with limited RAM:
 - **Stream-based JSON parsing** — responses parsed directly from the HTTP stream, never copied to a String
 - **ArduinoJson filters** — only needed fields are allocated in the JSON document
 - **Static pricing arrays** — prices stored in plain `double[]`, no JSON document overhead
-- **Reduced TLS buffers** — BearSSL configured with 512-byte buffers instead of the default ~60 KB
+- **Optimised TLS buffers** — BearSSL configured with 1024-byte buffers (~42 KB vs default ~60 KB)
 - **Static storage** — configuration and symbol strings stored with `static` to avoid linker conflicts
 
 ## Troubleshooting
@@ -153,13 +152,54 @@ This sketch was designed to run reliably on ESP8266 devices with limited RAM:
 - Check that the display address is correct (default `0x3C`)
 - If using a different display address, update `OLED_I2C_ADDR` in `config.h`
 
-### HTTPS connection fails
-- TLS handshake failures can occur if `TLS_READ_BUFFER` is too small
-- Try increasing it in `config.h`:
-  ```cpp
-  #define TLS_READ_BUFFER  1024    // ← increase from 512
-  #define TLS_WRITE_BUFFER 1024    // ← increase from 512
-  ```
+### HTTPS connection fails (error `-5`)
+
+HTTP error code `-5` (`HTTPC_ERROR_CONNECTION_LOST`) typically indicates a TLS handshake timeout or buffer overflow. This is the most common issue on ESP8266:
+
+**Step 1: Increase TLS buffer sizes**
+
+The default `512` bytes is aggressive. Try `1024`:
+
+```cpp
+#define TLS_READ_BUFFER  1024
+#define TLS_WRITE_BUFFER 1024
+```
+
+If that doesn't work, try `2048`:
+
+```cpp
+#define TLS_READ_BUFFER  2048
+#define TLS_WRITE_BUFFER 2048
+```
+
+**Step 2: Check poll delay**
+
+If you reduced `poll_delay` below `5000` ms, the ESP8266 may not have enough time to complete the TLS handshake. Try the default:
+
+```cpp
+const int poll_delay = 5000;   // 5 seconds
+```
+
+**Step 3: Enable debug logging**
+
+Uncomment in `debug.h`:
+
+```cpp
+#define DEBUG
+```
+
+Then check the serial output for the full error chain. Errors like `JSON error` or `HTTP error` with a code will tell you what went wrong.
+
+**Step 4: Verify Binance connectivity**
+
+From your computer on the same network, test:
+
+```bash
+curl https://api.binance.com/api/v3/ping
+# Should return: {}
+```
+
+If that fails, your network may be blocking Binance API. Check firewall rules.
 
 ### Prices not updating
 - Check **Serial Monitor** for error messages (run with `DEBUG` enabled in `debug.h`)
@@ -182,6 +222,10 @@ bitcoin-tracker-oled/
 ├── display_utils.h / .cpp      ← OLED rendering logic
 └── icons.h                     ← Direction arrow bitmaps
 ```
+
+## LCD Variant
+
+The `bitcoin-tracker-lcd/` directory contains an older variant of this project targeting a 16×2 LCD display. **This variant is deprecated and no longer maintained.** It uses an HTTP proxy and an outdated API integration that are incompatible with the current architecture. Use `bitcoin-tracker-oled/` instead.
 
 ## License
 

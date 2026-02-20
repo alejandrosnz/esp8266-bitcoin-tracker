@@ -10,7 +10,7 @@
  */
 #pragma once
 
-// #define DEBUG   ← uncomment to enable
+// #define DEBUG // uncomment to enable debug
 
 #ifdef DEBUG
   #define DEBUG_PRINT(x) Serial.println(x)

@@ -11,7 +11,7 @@ A real-time cryptocurrency price tracker for the ESP8266, displaying live prices
 - **Multi-asset support** — display and rotate between multiple cryptocurrencies (BTC, ETH, etc.)
 - **Daily change indicator** — visual arrows and % change vs midnight UTC open
 - **Non-blocking event loop** — responsive display updates using millisecond timers instead of blocking delays
-- **WiFi reconnection** — automatic reconnection with error display when connection is lost
+- **WiFi reconnection** — automatic background reconnection with "Connecting..." display when connection is lost
 - **Midnight price refresh** — daily opening prices refreshed silently at UTC midnight (optional, configurable)
 - **Memory-efficient** — stream-based JSON parsing, optimised for ESP8266's limited RAM
 - **Low TLS overhead** — reduced BearSSL buffers (~28 KB vs default ~60 KB)
@@ -121,7 +121,6 @@ All settings are in `config.h`:
 | `DIFF_PRINT_PERCENTAGE_AND_VALUE` | `false` | Show % only (`false`) or % + $ change (`true`) |
 | `poll_delay` | `5000` | Milliseconds between price polls |
 | `REFRESH_OPENING_PRICE_AT_MIDNIGHT` | `true` | Refresh daily opening prices at UTC midnight via NTP sync |
-| `WIFI_RECONNECT_TIMEOUT_MS` | `30000` | Milliseconds to wait between WiFi reconnection attempts |
 | `TLS_READ_BUFFER` / `TLS_WRITE_BUFFER` | `1024` | TLS buffer sizes; increase to `2048` if `-5` errors occur |
 
 ## API Endpoints Used

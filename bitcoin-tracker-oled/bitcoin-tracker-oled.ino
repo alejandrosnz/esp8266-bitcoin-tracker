@@ -69,8 +69,6 @@ double closing_prices[size_of_list_of_symbols];
 int           symbol_index           = 0;
 unsigned long start_time             = 0;  ///< Symbol-rotation timer (unsigned to avoid millis() overflow)
 unsigned long last_poll_time         = 0;  ///< Last time a price was fetched
-unsigned long last_reconnect_attempt = 0;  ///< Last time WiFi.reconnect() was called
-bool          wifi_error_shown       = false; ///< True while the error screen is visible
 
 #if REFRESH_OPENING_PRICE_AT_MIDNIGHT
 /// UTC day-of-year at last opening-price fetch; -1 until NTP is synced.
@@ -136,32 +134,13 @@ void loop() {
   unsigned long now_ms = millis();
 
   // ── WiFi watchdog ─────────────────────────────────────────────────────────
-  // If the link is down: show error on screen once, then call WiFi.reconnect()
-  // every WIFI_RECONNECT_TIMEOUT_MS ms (non-blocking).
   if (WiFi.status() != WL_CONNECTED) {
-    if (!wifi_error_shown) {
-      display.clearDisplay();
-      display.println(F("WiFi disconnected"));
-      display.display();
-      wifi_error_shown = true;
-    }
-    if (now_ms - last_reconnect_attempt >= WIFI_RECONNECT_TIMEOUT_MS) {
-      last_reconnect_attempt = now_ms;
-      DEBUG_PRINT(F("[wifi] Attempting reconnect..."));
-      WiFi.reconnect();
-    }
-    return;
-  }
-
-  // Just came back online → refresh all prices so the display is current.
-  if (wifi_error_shown) {
-    wifi_error_shown = false;
-    DEBUG_PRINT(F("[wifi] Reconnected — refreshing prices"));
-    for (int i = 0; i < size_of_list_of_symbols; i++) {
-      closing_prices[i] = get_closing_price(list_of_symbols[i]);
-      current_prices[i] = -1;  // force a redraw on next poll
-    }
-    last_poll_time = now_ms;
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println(F("Connecting..."));
+    display.display();
+    delay(500);
     return;
   }
 
@@ -208,6 +187,8 @@ void loop() {
   if (new_price < 0) {
     // API call failed — show error message
     display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0);
     display.println(F("API error"));
     display.display();
   } else if (new_price != current_prices[symbol_index]) {

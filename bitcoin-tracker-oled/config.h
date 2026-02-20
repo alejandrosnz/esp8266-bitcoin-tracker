@@ -67,12 +67,6 @@ const int poll_delay = 5000;
 // (prices will drift from the true daily-open reference after the first 24 h).
 #define REFRESH_OPENING_PRICE_AT_MIDNIGHT true
 
-// ── WiFi reconnection ─────────────────────────────────────────────────────────
-// How many milliseconds to wait between reconnection attempts when WiFi is lost.
-// The device will call WiFi.reconnect() once and then wait this long before
-// trying again. 30 000 ms (30 s) is a sensible default for home networks.
-#define WIFI_RECONNECT_TIMEOUT_MS 30000
-
 const int size_of_list_of_symbols = sizeof(list_of_symbols) / sizeof(list_of_symbols[0]);
 
 #endif // CONFIG_H

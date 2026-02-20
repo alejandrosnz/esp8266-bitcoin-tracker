@@ -34,10 +34,14 @@
  * Called once per request before HTTPClient::begin().  Keeping this in one
  * place makes it easy to tighten security (e.g. add a certificate fingerprint)
  * without touching every call-site.
+ *
+ * Timeout is set to 5000 ms (5 seconds) — adequate for Binance API in most
+ * network conditions. If you still see -5 errors on slow WiFi, increase this.
  */
 static void configure_tls(WiFiClientSecure& client) {
   client.setInsecure();                              // skip certificate verification
   client.setBufferSizes(TLS_READ_BUFFER, TLS_WRITE_BUFFER);
+  client.setTimeout(5000);                           // 5 second timeout
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,11 +53,13 @@ double get_current_price(const char* symbol) {
   configure_tls(client);
 
   HTTPClient http;
+  
   String url = String(F("https://")) + BINANCE_HOST
              + F("/api/v3/ticker/price?symbol=") + symbol + F("USDT");
   DEBUG_PRINT(url);
 
   http.begin(client, url);
+  http.addHeader(F("Connection"), F("close"));      // keep connections short
   digitalWrite(BUILTIN_LED, LOW);   // blink LED while request is in flight
   int code = http.GET();
   digitalWrite(BUILTIN_LED, HIGH);
@@ -79,10 +85,13 @@ double get_current_price(const char* symbol) {
     }
   } else {
     Serial.print(F("[api] HTTP error (current): "));
-    Serial.println(code);
+    Serial.print(code);
+    Serial.print(F(" | error: "));
+    Serial.println(http.errorToString(code));
   }
 
   http.end();
+  delay(100);   // brief pause before closing to allow graceful shutdown
   return price;
 }
 
@@ -91,11 +100,13 @@ double get_closing_price(const char* symbol) {
   configure_tls(client);
 
   HTTPClient http;
+  
   String url = String(F("https://")) + BINANCE_HOST
              + F("/api/v3/klines?symbol=") + symbol + F("USDT&interval=1d&limit=1");
   DEBUG_PRINT(url);
 
   http.begin(client, url);
+  http.addHeader(F("Connection"), F("close"));      // keep connections short
   digitalWrite(BUILTIN_LED, LOW);
   int code = http.GET();
   digitalWrite(BUILTIN_LED, HIGH);
@@ -118,9 +129,12 @@ double get_closing_price(const char* symbol) {
     }
   } else {
     Serial.print(F("[api] HTTP error (closing): "));
-    Serial.println(code);
+    Serial.print(code);
+    Serial.print(F(" | error: "));
+    Serial.println(http.errorToString(code));
   }
 
   http.end();
+  delay(100);   // brief pause before closing to allow graceful shutdown
   return price;
 }

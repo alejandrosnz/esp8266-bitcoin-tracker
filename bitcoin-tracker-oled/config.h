@@ -27,10 +27,12 @@ static const char* const password = "wifi_pass_here";
 static const char* const BINANCE_HOST = "api.binance.com";
 
 // TLS buffer sizes for BearSSL on ESP8266.
-// 512/512 keeps RAM usage low (~28 KB vs the default ~60 KB).
-// If you get connection failures, increase TLS_READ_BUFFER to 1024 or 4096.
-#define TLS_READ_BUFFER  512
-#define TLS_WRITE_BUFFER 512
+// Larger buffers (1024/1024) are more reliable than smaller ones (512/512),
+// especially on slower WiFi or with higher network latency.
+// If you run out of RAM or want aggressive optimisation, reduce to 512/512.
+// If you get connection failures ("-5" errors), try increasing to 2048/2048.
+#define TLS_READ_BUFFER  1024
+#define TLS_WRITE_BUFFER 1024
 
 // ── Symbols ───────────────────────────────────────────────────────────────────
 // Add/remove symbols as needed. Each must be a valid Binance base asset

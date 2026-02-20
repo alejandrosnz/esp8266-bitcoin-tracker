@@ -59,6 +59,20 @@ static const char* const list_of_symbols[] = {"BTC", "ETH"};
 // without stalling the display. Reduce only if your network is fast and stable.
 const int poll_delay = 5000;
 
+// ── Opening price refresh ─────────────────────────────────────────────────────
+// When true, the midnight-UTC opening price for every symbol is re-fetched once
+// per day at the moment the UTC calendar day rolls over (detected via NTP).
+// This requires an NTP time sync during setup() — adds about 1–3 s to boot time
+// and uses pool.ntp.org by default. Set to false to disable the daily refresh
+// (prices will drift from the true daily-open reference after the first 24 h).
+#define REFRESH_OPENING_PRICE_AT_MIDNIGHT true
+
+// ── WiFi reconnection ─────────────────────────────────────────────────────────
+// How many milliseconds to wait between reconnection attempts when WiFi is lost.
+// The device will call WiFi.reconnect() once and then wait this long before
+// trying again. 30 000 ms (30 s) is a sensible default for home networks.
+#define WIFI_RECONNECT_TIMEOUT_MS 30000
+
 const int size_of_list_of_symbols = sizeof(list_of_symbols) / sizeof(list_of_symbols[0]);
 
 #endif // CONFIG_H

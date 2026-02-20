@@ -25,10 +25,17 @@
  *  setup():  Connects to WiFi, then for every symbol fetches
  *              • the midnight-UTC open price  (Binance klines, daily candle)
  *              • the latest traded price      (Binance ticker/price)
+ *            If REFRESH_OPENING_PRICE_AT_MIDNIGHT is enabled (config.h),
+ *            configTime() registers the NTP servers for background sync.
  *
- *  loop():   Every poll_delay ms, re-fetches the current price for the
- *            active symbol and redraws the screen if the price changed.
- *            Symbols rotate every SECONDS_TO_DISPLAY_EACH_SYMBOL seconds.
+ *  loop():   Non-blocking. Two independent timers drive behaviour:
+ *              • Every poll_delay ms              → fetch the active symbol's price.
+ *              • Every SECONDS_TO_DISPLAY_EACH_SYMBOL s → rotate symbol.
+ *            WiFi drops are detected each iteration; reconnection is attempted
+ *            every WIFI_RECONNECT_TIMEOUT_MS ms and the screen shows an error
+ *            message while the link is down.
+ *            At UTC midnight, closing_prices[] is refreshed silently in
+ *            the background (only if REFRESH_OPENING_PRICE_AT_MIDNIGHT).
  *
  * ── Memory highlights ───────────────────────────────────────────────────────
  *  - Prices are stored in plain double[] arrays (no JSON document overhead).
@@ -42,6 +49,7 @@
 #include <avr/pgmspace.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <time.h>
 
 #include "config.h"
 #include "debug.h"
@@ -55,11 +63,19 @@ Adafruit_SH1106G display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 /// Last known price for each symbol (index mirrors list_of_symbols[]).
 double current_prices[size_of_list_of_symbols];
 
-/// Midnight-UTC open price for each symbol, fetched once at boot.
+/// Midnight-UTC open price for each symbol, used as daily % reference.
 double closing_prices[size_of_list_of_symbols];
 
-int  symbol_index = 0;
-long start_time   = 0;
+int           symbol_index           = 0;
+unsigned long start_time             = 0;  ///< Symbol-rotation timer (unsigned to avoid millis() overflow)
+unsigned long last_poll_time         = 0;  ///< Last time a price was fetched
+unsigned long last_reconnect_attempt = 0;  ///< Last time WiFi.reconnect() was called
+bool          wifi_error_shown       = false; ///< True while the error screen is visible
+
+#if REFRESH_OPENING_PRICE_AT_MIDNIGHT
+/// UTC day-of-year at last opening-price fetch; -1 until NTP is synced.
+int last_day = -1;
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -91,6 +107,14 @@ void setup() {
   display.println(F("WiFi connected!"));
   display.display();
 
+#if REFRESH_OPENING_PRICE_AT_MIDNIGHT
+  // Register NTP servers — non-blocking. The ESP8266 SNTP client syncs in the
+  // background automatically; no waiting here. loop() will initialise last_day
+  // on the first successful sync and trigger midnight refreshes thereafter.
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  DEBUG_PRINT(F("[ntp] Servers registered — sync in background"));
+#endif
+
   // Fetch initial prices for all configured symbols
   for (int i = 0; i < size_of_list_of_symbols; i++) {
     closing_prices[i] = get_closing_price(list_of_symbols[i]);
@@ -102,26 +126,92 @@ void setup() {
                   current_prices[0], current_prices[0],
                   closing_prices[0], list_of_symbols[0]);
 
-  start_time = millis();
+  last_poll_time = millis();
+  start_time     = millis();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) return;
+  unsigned long now_ms = millis();
 
-  long now = millis();
+  // ── WiFi watchdog ─────────────────────────────────────────────────────────
+  // If the link is down: show error on screen once, then call WiFi.reconnect()
+  // every WIFI_RECONNECT_TIMEOUT_MS ms (non-blocking).
+  if (WiFi.status() != WL_CONNECTED) {
+    if (!wifi_error_shown) {
+      display.clearDisplay();
+      display.println(F("WiFi disconnected"));
+      display.display();
+      wifi_error_shown = true;
+    }
+    if (now_ms - last_reconnect_attempt >= WIFI_RECONNECT_TIMEOUT_MS) {
+      last_reconnect_attempt = now_ms;
+      DEBUG_PRINT(F("[wifi] Attempting reconnect..."));
+      WiFi.reconnect();
+    }
+    return;
+  }
 
-  // Rotate to the next symbol once the display interval has elapsed
-  if (now > start_time + (SECONDS_TO_DISPLAY_EACH_SYMBOL * 1000L)) {
-    start_time   = now;
+  // Just came back online → refresh all prices so the display is current.
+  if (wifi_error_shown) {
+    wifi_error_shown = false;
+    DEBUG_PRINT(F("[wifi] Reconnected — refreshing prices"));
+    for (int i = 0; i < size_of_list_of_symbols; i++) {
+      closing_prices[i] = get_closing_price(list_of_symbols[i]);
+      current_prices[i] = -1;  // force a redraw on next poll
+    }
+    last_poll_time = now_ms;
+    return;
+  }
+
+  // ── Non-blocking poll gate ────────────────────────────────────────────────
+  // Nothing to do until poll_delay ms have elapsed since the last fetch.
+  if (now_ms - last_poll_time < (unsigned long)poll_delay) return;
+  last_poll_time = now_ms;
+
+  // ── Symbol rotation ───────────────────────────────────────────────────────
+  if (now_ms - start_time >= (unsigned long)(SECONDS_TO_DISPLAY_EACH_SYMBOL * 1000L)) {
+    start_time   = now_ms;
     symbol_index = (symbol_index + 1) % size_of_list_of_symbols;
   }
 
+  // ── Midnight UTC opening-price refresh ───────────────────────────────────
+  // Runs silently in the background: the current price is still shown while
+  // the closing_prices[] array is being updated.
+#if REFRESH_OPENING_PRICE_AT_MIDNIGHT
+  {
+    time_t t = time(nullptr);
+    if (t > 1000000000L) {                        // NTP has synced
+      struct tm* tm_info = gmtime(&t);
+      if (last_day == -1) {
+        // First sync after boot — just record today's day so we don't
+        // trigger a redundant refresh (closing_prices were already fetched
+        // in setup()).
+        last_day = tm_info->tm_yday;
+        DEBUG_PRINT(F("[ntp] Synced — last_day initialised"));
+      } else if (tm_info->tm_yday != last_day) {  // UTC day has rolled over
+        last_day = tm_info->tm_yday;
+        DEBUG_PRINT(F("[midnight] Refreshing opening prices..."));
+        for (int i = 0; i < size_of_list_of_symbols; i++) {
+          double new_closing = get_closing_price(list_of_symbols[i]);
+          if (new_closing > 0) closing_prices[i] = new_closing;
+        }
+      }
+    }
+  }
+#endif
+
+  // ── Price fetch and display ───────────────────────────────────────────────
   double new_price = get_current_price(list_of_symbols[symbol_index]);
 
-  // Only redraw when the price has actually changed (avoids flicker)
-  if (new_price > 0 && new_price != current_prices[symbol_index]) {
+  if (new_price < 0) {
+    // API call failed — show error message
+    display.clearDisplay();
+    display.println(F("API error"));
+    display.display();
+  } else if (new_price != current_prices[symbol_index]) {
+    // Only redraw when the price has actually changed (avoids flicker).
     print_to_screen(display,
                     new_price,
                     current_prices[symbol_index],
@@ -129,6 +219,4 @@ void loop() {
                     list_of_symbols[symbol_index]);
     current_prices[symbol_index] = new_price;
   }
-
-  delay(poll_delay);
 }

@@ -108,8 +108,8 @@ static void draw_change(Adafruit_SH1106G& display,
   } else {
     display.setCursor(80, 37);
     display.setTextSize(2);
-    display.print(pct, (pct < 10.0f) ? 1 : 0);
-    if (pct >= 10.0f) {
+    display.print(pct, (pct < 9.95f) ? 1 : 0);
+    if (pct >= 9.95f) {
       // Nudge the '%' sign closer when there is no decimal digit
       display.setTextSize(1);
       display.print(' ');
